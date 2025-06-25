@@ -1,7 +1,4 @@
-// ✅ Corrected: Ensures microphone toggling is instant.
-// ✅ Integrated: Real-time transcript display in UI.
-// ✅ Optimized: `useSpeechRecognition` hook usage and timing.
-
+// /pages/DebateRoom.jsx
 import React, { useState, useEffect } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import { Mic, MicOff, Video, VideoOff, Settings, Users, Timer } from "lucide-react";
@@ -27,19 +24,22 @@ const DebateRoom = () => {
   const [analyser, setAnalyser] = useState(null);
 
   useEffect(() => {
-    if (currentSpeaker === 1 && isMicOn) startListening();
-    else stopListening();
+    if (currentSpeaker === 1 && isMicOn) {
+      startListening();
+    } else {
+      stopListening();
+    }
   }, [currentSpeaker, isMicOn]);
 
   useEffect(() => {
     if (transcript) {
-      console.log("Live Transcript:", transcript);
+      console.log("Transcript Output:", transcript);
     }
   }, [transcript]);
 
   const toggleMic = async () => {
-    if (!isMicOn) {
-      try {
+    try {
+      if (!isMicOn) {
         const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
         const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
         const source = audioCtx.createMediaStreamSource(stream);
@@ -52,18 +52,18 @@ const DebateRoom = () => {
         setAnalyser(analyserNode);
         setIsMicOn(true);
         setCurrentSpeaker(1);
-      } catch (err) {
-        console.error("Microphone access denied", err);
+      } else {
+        stopListening();
+        mediaStream?.getTracks().forEach((track) => track.stop());
+        audioContext?.close();
+        setMediaStream(null);
+        setAudioContext(null);
+        setAnalyser(null);
+        setIsMicOn(false);
+        setCurrentSpeaker(null);
       }
-    } else {
-      stopListening();
-      mediaStream?.getTracks().forEach((track) => track.stop());
-      audioContext?.close();
-      setMediaStream(null);
-      setAudioContext(null);
-      setAnalyser(null);
-      setIsMicOn(false);
-      setCurrentSpeaker(null);
+    } catch (err) {
+      console.error("Microphone toggle error:", err);
     }
   };
 
@@ -86,12 +86,12 @@ const DebateRoom = () => {
   const teamSel = () => (remainingGov-- > 0 ? "Government" : "Opposition");
 
   const participants = [
-    { id: 1, name: user?.username || "Human", role: "Prime Minister", team: team, isAI: !isHumanMode, muted: true, videoOn: true },
+    { id: 1, name: user?.username || "Human", role: "Prime Minister", team: team, isAI: !isHumanMode, muted: !isMicOn, videoOn: true },
     { id: 2, name: "Bob Smith", role: "Deputy PM", team: teamSel(), isAI: true, muted: true, videoOn: true },
     { id: 3, name: "Carol Davis", role: "Gov Whip", team: teamSel(), isAI: true, muted: true, videoOn: true },
     { id: 4, name: "David Wilson", role: "Opposition Leader", team: teamSel(), isAI: true, muted: true, videoOn: true },
     { id: 5, name: "Eva Brown", role: "Deputy Opposition", team: teamSel(), isAI: true, muted: true, videoOn: true },
-    { id: 6, name: "Frank Miller", role: "Opposition Whip", team: teamSel(), isAI: true, muted: false, videoOn: true },
+    { id: 6, name: "Frank Miller", role: "Opposition Whip", team: teamSel(), isAI: true, muted: true, videoOn: true },
   ];
 
   const governmentTeam = participants.filter(p => p.team === "Government");
@@ -120,7 +120,7 @@ const DebateRoom = () => {
     );
   };
 
-  const ParticipantCard = ({ participant, isCurrentSpeaker, isMicOn, toggleMic }) => (
+  const ParticipantCard = ({ participant, isCurrentSpeaker }) => (
     <div className={`relative bg-gray-900 rounded-lg overflow-hidden ${isCurrentSpeaker ? 'ring-4 ring-green-400 shadow-lg' : 'ring-1 ring-gray-600'}`}>
       <div className="aspect-video bg-gray-800 flex items-center justify-center relative">
         {participant.videoOn ? (
@@ -208,7 +208,7 @@ const DebateRoom = () => {
           <div className="flex justify-center mb-6"><div className="bg-green-500 px-6 py-2 rounded-full text-xl font-bold">Government</div></div>
           <div className="space-y-4">
             {governmentTeam.map(p => (
-              <ParticipantCard key={p.id} participant={p} isCurrentSpeaker={currentSpeaker === p.id} isMicOn={isMicOn} toggleMic={toggleMic} />
+              <ParticipantCard key={p.id} participant={p} isCurrentSpeaker={currentSpeaker === p.id} />
             ))}
           </div>
         </div>
@@ -216,27 +216,8 @@ const DebateRoom = () => {
           <div className="flex justify-center mb-6"><div className="bg-red-500 px-6 py-2 rounded-full text-xl font-bold">Opposition</div></div>
           <div className="space-y-4">
             {oppositionTeam.map(p => (
-              <ParticipantCard key={p.id} participant={p} isCurrentSpeaker={currentSpeaker === p.id} isMicOn={isMicOn} toggleMic={toggleMic} />
+              <ParticipantCard key={p.id} participant={p} isCurrentSpeaker={currentSpeaker === p.id} />
             ))}
-          </div>
-        </div>
-      </div>
-
-      <div className="fixed bottom-0 left-0 right-0 bg-gray-800 border-t border-gray-700 px-6 py-3">
-        <div className="flex justify-between items-center">
-          <div className="flex items-center space-x-4">
-            <div className="text-sm text-gray-400">
-              Current Speaker: {currentSpeaker ? participants.find(p => p.id === currentSpeaker)?.name : "None"}
-            </div>
-            {currentSpeaker && (
-              <div className="flex items-center space-x-2">
-                <div className="w-3 h-3 bg-green-400 rounded-full animate-pulse"></div>
-                <span className="text-sm text-green-400">Speaking</span>
-              </div>
-            )}
-          </div>
-          <div className="text-sm text-gray-400">
-            {participants.filter(p => !p.muted).length} of {participants.length} unmuted
           </div>
         </div>
       </div>

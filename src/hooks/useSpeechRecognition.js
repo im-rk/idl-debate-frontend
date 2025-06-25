@@ -1,4 +1,3 @@
-// hooks/useSpeechRecognition.js
 import { useState, useEffect, useRef } from "react";
 
 const useSpeechRecognition = () => {
@@ -25,10 +24,15 @@ const useSpeechRecognition = () => {
       for (let i = event.resultIndex; i < event.results.length; ++i) {
         const result = event.results[i];
         if (result.isFinal) {
-          setTranscript((prev) => prev + result[0].transcript + " ");
+          const finalText = result[0].transcript;
+          console.log("🗣️ Final:", finalText);
+          setTranscript((prev) => prev + finalText + " ");
         } else {
           interimTranscript += result[0].transcript;
         }
+      }
+      if (interimTranscript) {
+        console.log("📝 Interim:", interimTranscript);
       }
     };
 
@@ -36,23 +40,31 @@ const useSpeechRecognition = () => {
       console.error("Speech recognition error:", event.error);
     };
 
+    recognition.onend = () => {
+      console.log("🎤 Speech recognition ended.");
+      setListening(false);
+    };
+
     recognitionRef.current = recognition;
   }, []);
 
   const startListening = () => {
     if (recognitionRef.current && !listening) {
-      recognitionRef.current.start();
-      setListening(true);
+      try {
+        recognitionRef.current.start();
+        setListening(true);
+        console.log("✅ Started listening");
+      } catch (e) {
+        console.error("SpeechRecognition already started.");
+      }
     }
   };
 
   const stopListening = () => {
-    if (recognitionRef.current) {
-      recognitionRef.current.onend = null;
-      recognitionRef.current.stop();
-      recognitionRef.current = null;
+    if (recognitionRef.current && listening) {
+      recognitionRef.current.stop(); // Do NOT nullify it here
+      console.log("🛑 Stopped listening");
     }
-    setListening(false);
   };
 
   return { transcript, listening, startListening, stopListening };
