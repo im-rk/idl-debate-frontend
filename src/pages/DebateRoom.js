@@ -54,13 +54,15 @@ const DebateRoom = () => {
         setCurrentSpeaker(1);
       } else {
         stopListening();
-        mediaStream?.getTracks().forEach((track) => track.stop());
-        audioContext?.close();
-        setMediaStream(null);
-        setAudioContext(null);
-        setAnalyser(null);
-        setIsMicOn(false);
-        setCurrentSpeaker(null);
+        setTimeout(() => {
+          mediaStream?.getTracks().forEach((track) => track.stop());
+          audioContext?.close();
+          setMediaStream(null);
+          setAudioContext(null);
+          setAnalyser(null);
+          setIsMicOn(false);
+          setCurrentSpeaker(null);
+        }, 300);
       }
     } catch (err) {
       console.error("Microphone toggle error:", err);

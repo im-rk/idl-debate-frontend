@@ -38,10 +38,13 @@ const useSpeechRecognition = () => {
 
     recognition.onerror = (event) => {
       console.error("Speech recognition error:", event.error);
+      if (event.error === "not-allowed" || event.error === "network") {
+        setListening(false);
+      }
     };
 
     recognition.onend = () => {
-      console.log("🎤 Speech recognition ended.");
+      console.log("🎤 Recognition ended.");
       setListening(false);
     };
 
@@ -49,25 +52,34 @@ const useSpeechRecognition = () => {
   }, []);
 
   const startListening = () => {
-    if (recognitionRef.current && !listening) {
-      try {
-        recognitionRef.current.start();
-        setListening(true);
-        console.log("✅ Started listening");
-      } catch (e) {
-        console.error("SpeechRecognition already started.");
-      }
+    if (!recognitionRef.current) return;
+    if (listening) return;
+
+    try {
+      recognitionRef.current.start();
+      setListening(true);
+      console.log("✅ Started listening");
+    } catch (error) {
+      console.warn("Already listening or start failed", error.message);
     }
   };
 
   const stopListening = () => {
-    if (recognitionRef.current && listening) {
-      recognitionRef.current.stop(); // Do NOT nullify it here
+    if (!recognitionRef.current) return;
+    try {
+      recognitionRef.current.stop();
+      setListening(false);
       console.log("🛑 Stopped listening");
+    } catch (e) {
+      console.error("Failed to stop", e);
     }
   };
 
-  return { transcript, listening, startListening, stopListening };
+  const resetTranscript = () => {
+    setTranscript("");
+  };
+
+  return { transcript, listening, startListening, stopListening, resetTranscript };
 };
 
 export default useSpeechRecognition;
