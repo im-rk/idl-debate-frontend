@@ -4,6 +4,8 @@ import { useNavigate, useLocation } from "react-router-dom";
 import { Mic, MicOff, Video, VideoOff, Settings, Users, Timer } from "lucide-react";
 import { useAuth } from "../contexts/AuthContext";
 import useSpeechRecognition from "../hooks/useSpeechRecognition";
+import { submitSpeech, generateAIResponse, evaluateDebate } from "../services/debateservice";
+import {speakText,loadVoices} from "../utils/speech";
 
 const DebateRoom = () => {
   const navigate = useNavigate();
@@ -22,6 +24,24 @@ const DebateRoom = () => {
   const [mediaStream, setMediaStream] = useState(null);
   const [audioContext, setAudioContext] = useState(null);
   const [analyser, setAnalyser] = useState(null);
+  const [aiResponses, setAIResponses] = useState({});
+  const [speechIndex, setSpeechIndex] = useState(0);
+  const [isEvaluated, setIsEvaluated] = useState(false);
+  const [judgement, setJudgement] = useState(null);
+
+  const [voiceMap,setVoiceMap]=useState({});
+  useEffect(()=>{
+    loadVoices().then((voices)=>{
+      const aiVoiceMap={
+        "Bob Smith": voices.find((v) => v.name.includes("Google UK English Male"))?.name || voices[0]?.name,
+        "Carol Davis": voices.find((v) => v.name.includes("Google UK English Female"))?.name || voices[1]?.name,
+        "David Wilson": voices.find((v) => v.name.includes("Google US English"))?.name || voices[2]?.name,
+        "Eva Brown": voices.find((v) => v.name.includes("Microsoft"))?.name || voices[3]?.name,
+        "Frank Miller": voices.find((v) => v.name.includes("Google"))?.name || voices[4]?.name,
+      };
+      setVoiceMap(aiVoiceMap);
+    });
+  },[]);
 
   useEffect(() => {
     if (currentSpeaker === 1 && isMicOn) {
@@ -63,6 +83,15 @@ const DebateRoom = () => {
           setIsMicOn(false);
           setCurrentSpeaker(null);
         }, 300);
+
+        if (transcript.trim()) {
+          try {
+            await submitSpeech(user?.username || "Human", transcript, topic);
+            console.log("Speech submitted");
+          } catch (err) {
+            console.error("Error submitting speech:", err);
+          }
+        }
       }
     } catch (err) {
       console.error("Microphone toggle error:", err);
@@ -88,7 +117,7 @@ const DebateRoom = () => {
   const teamSel = () => (remainingGov-- > 0 ? "Government" : "Opposition");
 
   const participants = [
-    { id: 1, name: user?.username || "Human", role: "Prime Minister", team: team, isAI: !isHumanMode, muted: !isMicOn, videoOn: true },
+    { id: 1, name: user?.username || "Human", role: "Prime Minister", team: team, isAI: false, muted: !isMicOn, videoOn: true },
     { id: 2, name: "Bob Smith", role: "Deputy PM", team: teamSel(), isAI: true, muted: true, videoOn: true },
     { id: 3, name: "Carol Davis", role: "Gov Whip", team: teamSel(), isAI: true, muted: true, videoOn: true },
     { id: 4, name: "David Wilson", role: "Opposition Leader", team: teamSel(), isAI: true, muted: true, videoOn: true },
@@ -104,6 +133,29 @@ const DebateRoom = () => {
     const interval = setInterval(() => setTimeRemaining(t => t - 1), 1000);
     return () => clearInterval(interval);
   }, [isActive, timeRemaining]);
+
+  const handleAISpeaking = async () => {
+    if (speechIndex >= participants.length) return;
+
+    const aiParticipant = participants[speechIndex];
+    if (aiParticipant.isAI) {
+      try {
+        const aiSpeech = await generateAIResponse(topic, aiParticipant.role);
+        setAIResponses(prev => ({ ...prev, [aiParticipant.id]: aiSpeech }));
+        console.log(`${aiParticipant.name} (AI) spoke:`, aiSpeech);
+        
+        const voiceName=voiceMap[aiParticipant.name];
+        speakText(aiSpeech,voiceName);
+      } catch (err) {
+        console.error("Error generating AI speech:", err);
+      }
+    }
+    setSpeechIndex(prev => prev + 1);
+  };
+
+  useEffect(() => {
+    if (isActive) handleAISpeaking();
+  }, [speechIndex, isActive]);
 
   const formatTime = (seconds) => `${Math.floor(seconds / 60)}:${(seconds % 60).toString().padStart(2, "0")}`;
 
@@ -178,9 +230,22 @@ const DebateRoom = () => {
         {participant.id === 1 && transcript && (
           <p className="text-green-300 text-xs mt-2">Transcript: {transcript}</p>
         )}
+        {participant.isAI && aiResponses[participant.id] && (
+          <p className="text-blue-300 text-xs mt-2">AI Speech: {aiResponses[participant.id]}</p>
+        )}
       </div>
     </div>
   );
+
+  const handleEvaluate = async () => {
+    try {
+      const result = await evaluateDebate(topic);
+      setJudgement(result);
+      setIsEvaluated(true);
+    } catch (err) {
+      console.error("Evaluation failed:", err);
+    }
+  };
 
   return (
     <div className="min-h-screen bg-gray-900 text-white">
@@ -198,6 +263,7 @@ const DebateRoom = () => {
                 {isActive ? "Pause" : "Start"}
               </button>
             </div>
+            <button onClick={handleEvaluate} className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700">Evaluate</button>
             <button className="p-2 bg-gray-700 rounded hover:bg-gray-600"><Users size={20} /></button>
             <button className="p-2 bg-gray-700 rounded hover:bg-gray-600"><Settings size={20} /></button>
             <button onClick={() => navigate("/home")} className="bg-red-600 text-white px-4 py-2 rounded hover:bg-red-700">Leave Debate</button>
@@ -223,6 +289,13 @@ const DebateRoom = () => {
           </div>
         </div>
       </div>
+
+      {isEvaluated && (
+        <div className="max-w-4xl mx-auto bg-gray-800 p-6 mt-4 rounded-lg border border-gray-600">
+          <h2 className="text-xl font-bold mb-2">Judgement:</h2>
+          <pre className="text-sm text-gray-200 whitespace-pre-wrap">{judgement}</pre>
+        </div>
+      )}
     </div>
   );
 };
