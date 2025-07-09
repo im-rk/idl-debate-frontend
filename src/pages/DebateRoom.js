@@ -1,11 +1,10 @@
-// /pages/DebateRoom.jsx
 import React, { useState, useEffect } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import { Mic, MicOff, Video, VideoOff, Settings, Users, Timer } from "lucide-react";
 import { useAuth } from "../contexts/AuthContext";
 import useSpeechRecognition from "../hooks/useSpeechRecognition";
-import { submitSpeech, generateAIResponse, evaluateDebate } from "../services/debateservice";
-import {speakText,loadVoices} from "../utils/speech";
+import { submitSpeech, evaluateDebate } from "../services/debateservice";
+import { speakText, loadVoices } from "../utils/speech";
 
 const DebateRoom = () => {
   const navigate = useNavigate();
@@ -20,7 +19,6 @@ const DebateRoom = () => {
   const [timeRemaining, setTimeRemaining] = useState(300);
   const [isActive, setIsActive] = useState(false);
   const [frequencyData, setFrequencyData] = useState({});
-  const [isMicOn, setIsMicOn] = useState(false);
   const [mediaStream, setMediaStream] = useState(null);
   const [audioContext, setAudioContext] = useState(null);
   const [analyser, setAnalyser] = useState(null);
@@ -28,38 +26,69 @@ const DebateRoom = () => {
   const [speechIndex, setSpeechIndex] = useState(0);
   const [isEvaluated, setIsEvaluated] = useState(false);
   const [judgement, setJudgement] = useState(null);
+  const [voiceMap, setVoiceMap] = useState({});
+  const [micStatus, setMicStatus] = useState({});
 
-  const [voiceMap,setVoiceMap]=useState({});
-  useEffect(()=>{
-    loadVoices().then((voices)=>{
-      const aiVoiceMap={
-        "Bob Smith": voices.find((v) => v.name.includes("Google UK English Male"))?.name || voices[0]?.name,
-        "Carol Davis": voices.find((v) => v.name.includes("Google UK English Female"))?.name || voices[1]?.name,
-        "David Wilson": voices.find((v) => v.name.includes("Google US English"))?.name || voices[2]?.name,
-        "Eva Brown": voices.find((v) => v.name.includes("Microsoft"))?.name || voices[3]?.name,
-        "Frank Miller": voices.find((v) => v.name.includes("Google"))?.name || voices[4]?.name,
-      };
-      setVoiceMap(aiVoiceMap);
-    });
-  },[]);
+  let remainingGov = 3 - (team === "Government" ? 1 : 0);
+  const teamSel = () => (remainingGov-- > 0 ? "Government" : "Opposition");
 
+  const participants = [
+    { id: 1, name: user?.username || "Human", role: "Prime Minister", team: team, isAI: false, muted: !micStatus[1], videoOn: true },
+    { id: 2, name: "Bob Smith", role: "Deputy PM", team: teamSel(), isAI: true, muted: !micStatus[2], videoOn: true },
+    { id: 3, name: "Carol Davis", role: "Gov Whip", team: teamSel(), isAI: true, muted: !micStatus[3], videoOn: true },
+    { id: 4, name: "David Wilson", role: "Opposition Leader", team: teamSel(), isAI: true, muted: !micStatus[4], videoOn: true },
+    { id: 5, name: "Eva Brown", role: "Deputy Opposition", team: teamSel(), isAI: true, muted: !micStatus[5], videoOn: true },
+    { id: 6, name: "Frank Miller", role: "Opposition Whip", team: teamSel(), isAI: true, muted: !micStatus[6], videoOn: true },
+  ];
+
+  const governmentTeam = participants.filter((p) => p.team === "Government");
+  const oppositionTeam = participants.filter((p) => p.team === "Opposition");
+
+  // Initialize micStatus after participants is defined
   useEffect(() => {
-    if (currentSpeaker === 1 && isMicOn) {
+    setMicStatus(Object.fromEntries(participants.map((p) => [p.id, false])));
+  }, []);
+
+  // Load voices for AI participants
+  useEffect(() => {
+    loadVoices()
+      .then((voices) => {
+        const aiVoiceMap = {
+          "Bob Smith": voices.find((v) => v.name.includes("Google UK English Male"))?.name || voices[0]?.name,
+          "Carol Davis": voices.find((v) => v.name.includes("Google UK English Female"))?.name || voices[1]?.name,
+          "David Wilson": voices.find((v) => v.name.includes("Google US English"))?.name || voices[2]?.name,
+          "Eva Brown": voices.find((v) => v.name.includes("Microsoft"))?.name || voices[3]?.name,
+          "Frank Miller": voices.find((v) => v.name.includes("Google"))?.name || voices[4]?.name,
+        };
+        setVoiceMap(aiVoiceMap);
+        console.log("Voice Map:", aiVoiceMap);
+      })
+      .catch((err) => {
+        console.error("Failed to load voices:", err.message);
+        alert("Speech synthesis voices failed to load. AI voices may not work.");
+      });
+  }, []);
+
+  // Handle human speech recognition
+  useEffect(() => {
+    if (currentSpeaker === 1 && micStatus[1]) {
       startListening();
     } else {
       stopListening();
     }
-  }, [currentSpeaker, isMicOn]);
+  }, [currentSpeaker, micStatus, startListening, stopListening]);
 
+  // Log transcript changes
   useEffect(() => {
     if (transcript) {
       console.log("Transcript Output:", transcript);
     }
   }, [transcript]);
 
+  // Handle human mic toggle
   const toggleMic = async () => {
     try {
-      if (!isMicOn) {
+      if (!micStatus[1]) {
         const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
         const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
         const source = audioCtx.createMediaStreamSource(stream);
@@ -70,7 +99,7 @@ const DebateRoom = () => {
         setMediaStream(stream);
         setAudioContext(audioCtx);
         setAnalyser(analyserNode);
-        setIsMicOn(true);
+        setMicStatus((prev) => ({ ...prev, 1: true }));
         setCurrentSpeaker(1);
       } else {
         stopListening();
@@ -80,26 +109,33 @@ const DebateRoom = () => {
           setMediaStream(null);
           setAudioContext(null);
           setAnalyser(null);
-          setIsMicOn(false);
+          setMicStatus((prev) => ({ ...prev, 1: false }));
           setCurrentSpeaker(null);
         }, 300);
 
         if (transcript.trim()) {
           try {
-            await submitSpeech(user?.username || "Human", transcript, topic);
+            //await submitSpeech(user?.username || "Human", transcript, topic);
             console.log("Speech submitted");
+            alert("Human speech submitted successfully!");
+            if (isActive) {
+              setSpeechIndex((prev) => prev + 1); // Move to next AI speaker
+            }
           } catch (err) {
-            console.error("Error submitting speech:", err);
+            console.error("Speech submission failed:", err.message);
+            alert("Failed to submit speech. Please try again.");
           }
         }
       }
     } catch (err) {
-      console.error("Microphone toggle error:", err);
+      console.error("Microphone toggle error:", err.name, err.message);
+      alert("Microphone access failed. Check browser permissions.");
     }
   };
 
+  // Update frequency data for human participant
   useEffect(() => {
-    if (currentSpeaker === 1 && isMicOn && analyser) {
+    if (currentSpeaker === 1 && micStatus[1] && analyser) {
       const bufferLength = analyser.frequencyBinCount;
       const dataArray = new Uint8Array(bufferLength);
 
@@ -111,51 +147,110 @@ const DebateRoom = () => {
 
       return () => clearInterval(interval);
     }
-  }, [currentSpeaker, isMicOn, analyser]);
+  }, [currentSpeaker, micStatus, analyser]);
 
-  let remainingGov = 3 - (team === "Government" ? 1 : 0);
-  const teamSel = () => (remainingGov-- > 0 ? "Government" : "Opposition");
+  // Simulate AI mic activity
+  const simulateAIMicActivity = (participantId, duration) => {
+    setMicStatus((prev) => {
+      console.log("Mic status update:", { ...prev, [participantId]: true });
+      return { ...prev, [participantId]: true };
+    });
 
-  const participants = [
-    { id: 1, name: user?.username || "Human", role: "Prime Minister", team: team, isAI: false, muted: !isMicOn, videoOn: true },
-    { id: 2, name: "Bob Smith", role: "Deputy PM", team: teamSel(), isAI: true, muted: true, videoOn: true },
-    { id: 3, name: "Carol Davis", role: "Gov Whip", team: teamSel(), isAI: true, muted: true, videoOn: true },
-    { id: 4, name: "David Wilson", role: "Opposition Leader", team: teamSel(), isAI: true, muted: true, videoOn: true },
-    { id: 5, name: "Eva Brown", role: "Deputy Opposition", team: teamSel(), isAI: true, muted: true, videoOn: true },
-    { id: 6, name: "Frank Miller", role: "Opposition Whip", team: teamSel(), isAI: true, muted: true, videoOn: true },
-  ];
+    const simulateFrequency = () => {
+      const fakeData = Array.from({ length: 8 }, () => Math.random() * 100);
+      setFrequencyData((prev) => ({ ...prev, [participantId]: fakeData }));
+    };
 
-  const governmentTeam = participants.filter(p => p.team === "Government");
-  const oppositionTeam = participants.filter(p => p.team === "Opposition");
+    simulateFrequency();
+    const interval = setInterval(simulateFrequency, 100);
 
-  useEffect(() => {
-    if (!isActive || timeRemaining === 0) return;
-    const interval = setInterval(() => setTimeRemaining(t => t - 1), 1000);
-    return () => clearInterval(interval);
-  }, [isActive, timeRemaining]);
+    setTimeout(() => {
+      clearInterval(interval);
+      setMicStatus((prev) => ({ ...prev, [participantId]: false }));
+      setFrequencyData((prev) => {
+        const newData = { ...prev };
+        delete newData[participantId];
+        return newData;
+      });
+    }, duration);
+  };
 
+  // Handle AI speaking with voice and mic simulation
   const handleAISpeaking = async () => {
     if (speechIndex >= participants.length) return;
 
-    const aiParticipant = participants[speechIndex];
-    if (aiParticipant.isAI) {
+    const participant = participants[speechIndex];
+    if (participant.isAI) {
       try {
-        const aiSpeech = await generateAIResponse(topic, aiParticipant.role);
-        setAIResponses(prev => ({ ...prev, [aiParticipant.id]: aiSpeech }));
-        console.log(`${aiParticipant.name} (AI) spoke:`, aiSpeech);
-        
-        const voiceName=voiceMap[aiParticipant.name];
-        speakText(aiSpeech,voiceName);
+        // Use sample text instead of backend call
+        const aiSpeech =
+          participant.name === "Bob Smith"
+            ? "I support AI regulation to ensure ethical development."
+            : participant.name === "Carol Davis"
+            ? "Regulation could hinder AI innovation and progress."
+            : participant.name === "David Wilson"
+            ? "A balanced approach to AI regulation is necessary."
+            : participant.name === "Eva Brown"
+            ? "AI safety must be prioritized to protect society."
+            : "We should foster AI growth with minimal restrictions.";
+
+        setAIResponses((prev) => ({ ...prev, [participant.id]: aiSpeech }));
+        console.log(`${participant.name} (AI) spoke:`, aiSpeech);
+
+        const voiceName = voiceMap[participant.name];
+        console.log(`Speaking with voice: ${voiceName}`);
+        const estimatedDuration = (aiSpeech.length / 5 / 150) * 60 * 1000; // chars to words to ms
+        const minDuration = 5000;
+        const speechDuration = Math.max(estimatedDuration, minDuration);
+
+        setCurrentSpeaker(participant.id);
+        simulateAIMicActivity(participant.id, speechDuration);
+        const utterance = await speakText(aiSpeech, voiceName);
+        if (utterance) {
+          utterance.onend = () => {
+            setCurrentSpeaker(null);
+            setMicStatus((prev) => ({ ...prev, [participant.id]: false }));
+            setFrequencyData((prev) => {
+              const newData = { ...prev };
+              delete newData[participant.id];
+              return newData;
+            });
+            setSpeechIndex((prev) => prev + 1);
+          };
+        } else {
+          // Fallback if speech fails
+          setTimeout(() => {
+            setCurrentSpeaker(null);
+            setSpeechIndex((prev) => prev + 1);
+          }, speechDuration);
+        }
       } catch (err) {
-        console.error("Error generating AI speech:", err);
+        console.error("Error in AI speech:", err);
+        alert("Failed to process AI speech.");
+        setSpeechIndex((prev) => prev + 1); // Move to next participant
       }
     }
-    setSpeechIndex(prev => prev + 1);
   };
 
+  // Trigger AI speaking when active
   useEffect(() => {
-    if (isActive) handleAISpeaking();
+    if (isActive && speechIndex > 0) handleAISpeaking();
   }, [speechIndex, isActive]);
+
+  // Prompt PM to speak first
+  useEffect(() => {
+    if (isActive && speechIndex === 0) {
+      setCurrentSpeaker(1);
+      alert("Debate started! Prime Minister, please toggle your mic to speak.");
+    }
+  }, [isActive]);
+
+  // Timer for debate
+  useEffect(() => {
+    if (!isActive || timeRemaining === 0) return;
+    const interval = setInterval(() => setTimeRemaining((t) => t - 1), 1000);
+    return () => clearInterval(interval);
+  }, [isActive, timeRemaining]);
 
   const formatTime = (seconds) => `${Math.floor(seconds / 60)}:${(seconds % 60).toString().padStart(2, "0")}`;
 
@@ -175,12 +270,12 @@ const DebateRoom = () => {
   };
 
   const ParticipantCard = ({ participant, isCurrentSpeaker }) => (
-    <div className={`relative bg-gray-900 rounded-lg overflow-hidden ${isCurrentSpeaker ? 'ring-4 ring-green-400 shadow-lg' : 'ring-1 ring-gray-600'}`}>
+    <div className={`relative bg-gray-900 rounded-lg overflow-hidden ${isCurrentSpeaker ? "ring-4 ring-green-400 shadow-lg" : "ring-1 ring-gray-600"}`}>
       <div className="aspect-video bg-gray-800 flex items-center justify-center relative">
         {participant.videoOn ? (
           <div className="w-full h-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center">
             <div className="w-20 h-20 bg-white rounded-full text-2xl font-bold text-gray-800 flex items-center justify-center">
-              {participant.name.split(" ").map(n => n[0]).join("")}
+              {participant.name.split(" ").map((n) => n[0]).join("")}
             </div>
           </div>
         ) : (
@@ -208,21 +303,31 @@ const DebateRoom = () => {
         <div className="flex items-center justify-between mt-2">
           <div className="flex space-x-2">
             {participant.id === 1 ? (
-              <button className={`p-1 rounded ${isMicOn ? "bg-green-500" : "bg-red-500"} text-white`} onClick={toggleMic}>
-                {isMicOn ? <Mic size={16} /> : <MicOff size={16} />}
+              <button
+                className={`p-1 rounded ${micStatus[participant.id] ? "bg-green-500" : "bg-red-500"} text-white`}
+                onClick={toggleMic}
+              >
+                {micStatus[participant.id] ? <Mic size={16} /> : <MicOff size={16} />}
               </button>
             ) : (
-              <button className="p-1 rounded bg-gray-600 text-gray-300" disabled>
-                {participant.muted ? <MicOff size={16} /> : <Mic size={16} />}
+              <button
+                className={`p-1 rounded ${micStatus[participant.id] ? "bg-green-500" : "bg-gray-600"} text-white`}
+                disabled
+              >
+                {micStatus[participant.id] ? <Mic size={16} /> : <MicOff size={16} />}
               </button>
             )}
-            <button className={`p-1 rounded ${!participant.videoOn ? "bg-red-500 text-white" : "bg-gray-600 text-gray-300"}`}>
+            <button
+              className={`p-1 rounded ${!participant.videoOn ? "bg-red-500 text-white" : "bg-gray-600 text-gray-300"}`}
+              disabled
+            >
               {participant.videoOn ? <Video size={16} /> : <VideoOff size={16} />}
             </button>
           </div>
           <button
             className={`px-3 py-1 rounded text-xs font-medium ${isCurrentSpeaker ? "bg-red-500" : "bg-green-500 hover:bg-green-600"} text-white`}
-            onClick={() => setCurrentSpeaker(isCurrentSpeaker ? null : participant.id)}>
+            onClick={() => setCurrentSpeaker(isCurrentSpeaker ? null : participant.id)}
+          >
             {isCurrentSpeaker ? "Stop" : "Speak"}
           </button>
         </div>
@@ -242,8 +347,10 @@ const DebateRoom = () => {
       const result = await evaluateDebate(topic);
       setJudgement(result);
       setIsEvaluated(true);
+      alert("Debate evaluation completed!");
     } catch (err) {
-      console.error("Evaluation failed:", err);
+      console.error("Evaluation failed:", err.message);
+      alert("Failed to evaluate debate.");
     }
   };
 
@@ -259,31 +366,49 @@ const DebateRoom = () => {
             <div className="flex items-center space-x-2 bg-gray-700 px-4 py-2 rounded">
               <Timer size={20} />
               <span className="font-mono text-lg">{formatTime(timeRemaining)}</span>
-              <button onClick={() => setIsActive(!isActive)} className={`px-3 py-1 rounded text-sm ${isActive ? "bg-red-500" : "bg-green-500"} text-white`}>
+              <button
+                onClick={() => setIsActive(!isActive)}
+                className={`px-3 py-1 rounded text-sm ${isActive ? "bg-red-500" : "bg-green-500"} text-white`}
+              >
                 {isActive ? "Pause" : "Start"}
               </button>
             </div>
-            <button onClick={handleEvaluate} className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700">Evaluate</button>
-            <button className="p-2 bg-gray-700 rounded hover:bg-gray-600"><Users size={20} /></button>
-            <button className="p-2 bg-gray-700 rounded hover:bg-gray-600"><Settings size={20} /></button>
-            <button onClick={() => navigate("/home")} className="bg-red-600 text-white px-4 py-2 rounded hover:bg-red-700">Leave Debate</button>
+            <button onClick={handleEvaluate} className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700">
+              Evaluate
+            </button>
+            <button className="p-2 bg-gray-700 rounded hover:bg-gray-600">
+              <Users size={20} />
+            </button>
+            <button className="p-2 bg-gray-700 rounded hover:bg-gray-600">
+              <Settings size={20} />
+            </button>
+            <button
+              onClick={() => navigate("/home")}
+              className="bg-red-600 text-white px-4 py-2 rounded hover:bg-red-700"
+            >
+              Leave Debate
+            </button>
           </div>
         </div>
       </div>
 
       <div className="p-6 max-w-7xl mx-auto grid grid-cols-1 lg:grid-cols-2 gap-8">
         <div>
-          <div className="flex justify-center mb-6"><div className="bg-green-500 px-6 py-2 rounded-full text-xl font-bold">Government</div></div>
+          <div className="flex justify-center mb-6">
+            <div className="bg-green-500 px-6 py-2 rounded-full text-xl font-bold">Government</div>
+          </div>
           <div className="space-y-4">
-            {governmentTeam.map(p => (
+            {governmentTeam.map((p) => (
               <ParticipantCard key={p.id} participant={p} isCurrentSpeaker={currentSpeaker === p.id} />
             ))}
           </div>
         </div>
         <div>
-          <div className="flex justify-center mb-6"><div className="bg-red-500 px-6 py-2 rounded-full text-xl font-bold">Opposition</div></div>
+          <div className="flex justify-center mb-6">
+            <div className="bg-red-500 px-6 py-2 rounded-full text-xl font-bold">Opposition</div>
+          </div>
           <div className="space-y-4">
-            {oppositionTeam.map(p => (
+            {oppositionTeam.map((p) => (
               <ParticipantCard key={p.id} participant={p} isCurrentSpeaker={currentSpeaker === p.id} />
             ))}
           </div>
