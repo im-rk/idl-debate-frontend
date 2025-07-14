@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import { Mic, MicOff, Video, VideoOff, Settings, Users, Timer } from "lucide-react";
 import { useAuth } from "../contexts/AuthContext";
@@ -29,6 +29,11 @@ const DebateRoom = () => {
   const [voiceMap, setVoiceMap] = useState({});
   const [micStatus, setMicStatus] = useState({});
 
+  const aiResponsesRef=useRef(aiResponses);
+  // New state for alternating team logic
+  const [lastSpeakerTeam, setLastSpeakerTeam] = useState(null);
+  const [nextSpeakerTeam, setNextSpeakerTeam] = useState(null);
+
   let remainingGov = 3 - (team === "Government" ? 1 : 0);
   const teamSel = () => (remainingGov-- > 0 ? "Government" : "Opposition");
 
@@ -43,6 +48,25 @@ const DebateRoom = () => {
 
   const governmentTeam = participants.filter((p) => p.team === "Government");
   const oppositionTeam = participants.filter((p) => p.team === "Opposition");
+
+  // Function to get next speaker from opposite team
+  const getNextSpeakerFromOppositeTeam = (currentTeam) => {
+    const oppositeTeam = currentTeam === "Government" ? "Opposition" : "Government";
+    const teamParticipants = participants.filter(p => p.team === oppositeTeam);
+    
+    // Find AI participants from opposite team who haven't spoken yet
+    const availableAI = teamParticipants.filter(p => p.isAI && !aiResponsesRef.current[p.id]);
+    
+    if (availableAI.length > 0) {
+      return availableAI[0]; // Return first available AI from opposite team
+    }
+    
+    // If no AI available from opposite team, return null
+    return null;
+  };
+  useEffect(()=>{
+      aiResponsesRef.current=aiResponses;
+    },[aiResponses]);
 
   // Initialize micStatus after participants is defined
   useEffect(() => {
@@ -71,12 +95,12 @@ const DebateRoom = () => {
 
   // Handle human speech recognition
   useEffect(() => {
-    if (currentSpeaker === 1 && micStatus[1]) {
+    if (currentSpeaker === 1 && micStatus[1] && !listening) {
       startListening();
-    } else {
+    } else if (listening && (currentSpeaker !== 1 || !micStatus[1])) {
       stopListening();
     }
-  }, [currentSpeaker, micStatus, startListening, stopListening]);
+  }, [currentSpeaker, micStatus, listening, startListening, stopListening]);
 
   // Log transcript changes
   useEffect(() => {
@@ -119,7 +143,18 @@ const DebateRoom = () => {
             console.log("Speech submitted");
             alert("Human speech submitted successfully!");
             if (isActive) {
-              setSpeechIndex((prev) => prev + 1); // Move to next AI speaker
+              // Update last speaker team and trigger next speaker from opposite team
+              const humanParticipant = participants.find(p => p.id === 1);
+              setLastSpeakerTeam(humanParticipant.team);
+              setNextSpeakerTeam(humanParticipant.team === "Government" ? "Opposition" : "Government");
+              
+              // Trigger next AI speaker from opposite team
+              const nextSpeaker = getNextSpeakerFromOppositeTeam(humanParticipant.team);
+              if (nextSpeaker) {
+                setTimeout(() => {
+                  handleSpecificAISpeaking(nextSpeaker);
+                }, 1000); // Small delay for better UX
+              }
             }
           } catch (err) {
             console.error("Speech submission failed:", err.message);
@@ -175,64 +210,93 @@ const DebateRoom = () => {
     }, duration);
   };
 
-  // Handle AI speaking with voice and mic simulation
+  // Handle specific AI speaking (new function for alternating team logic)
+  const handleSpecificAISpeaking = async (participant) => {
+    if (!participant || !participant.isAI) return;
+
+    try {
+      // Use sample text instead of backend call
+      const aiSpeech =
+        participant.name === "Bob Smith"
+          ? "I support AI regulation to ensure ethical development."
+          : participant.name === "Carol Davis"
+          ? "Regulation could hinder AI innovation and progress."
+          : participant.name === "David Wilson"
+          ? "A balanced approach to AI regulation is necessary."
+          : participant.name === "Eva Brown"
+          ? "AI safety must be prioritized to protect society."
+          : "We should foster AI growth with minimal restrictions.";
+
+      console.log(`${participant.name} (AI) spoke:`, aiSpeech);
+
+      const voiceName = voiceMap[participant.name];
+      console.log(`Speaking with voice: ${voiceName}`);
+      const estimatedDuration = (aiSpeech.length / 5 / 150) * 60 * 1000; // chars to words to ms
+      const minDuration = 5000;
+      const speechDuration = Math.max(estimatedDuration, minDuration);
+
+      setCurrentSpeaker(participant.id);
+      simulateAIMicActivity(participant.id, speechDuration);
+      const utterance = await speakText(aiSpeech, voiceName);
+      
+      if (utterance) {
+        utterance.onend = () => {
+          setCurrentSpeaker(null);
+          setMicStatus((prev) => ({ ...prev, [participant.id]: false }));
+          setFrequencyData((prev) => {
+            const newData = { ...prev };
+            delete newData[participant.id];
+            return newData;
+          });
+          
+          setAIResponses((prev)=>({...prev,[participant.id]:aiSpeech}));
+          console.log(aiResponses);
+          // Update last speaker team and find next speaker from opposite team
+          setLastSpeakerTeam(participant.team);
+          const oppositeTeam = participant.team === "Government" ? "Opposition" : "Government";
+          setNextSpeakerTeam(oppositeTeam);
+          
+          // Find next AI speaker from opposite team
+          const nextSpeaker = getNextSpeakerFromOppositeTeam(participant.team);
+          if (nextSpeaker) {
+            setTimeout(() => {
+              handleSpecificAISpeaking(nextSpeaker);
+            }, 2000); // 2 second delay between speakers
+          }
+        };
+      } else {
+        // Fallback if speech fails
+        setTimeout(() => {
+          setCurrentSpeaker(null);
+          setLastSpeakerTeam(participant.team);
+          const oppositeTeam = participant.team === "Government" ? "Opposition" : "Government";
+          setNextSpeakerTeam(oppositeTeam);
+          
+          const nextSpeaker = getNextSpeakerFromOppositeTeam(participant.team);
+          if (nextSpeaker) {
+            setTimeout(() => {
+              handleSpecificAISpeaking(nextSpeaker);
+            }, 2000);
+          }
+        }, speechDuration);
+      }
+    } catch (err) {
+      console.error("Error in AI speech:", err);
+      alert("Failed to process AI speech.");
+    }
+  };
+
+  // Handle AI speaking with voice and mic simulation (kept for backward compatibility)
   const handleAISpeaking = async () => {
     if (speechIndex >= participants.length) return;
 
     const participant = participants[speechIndex];
     if (participant.isAI) {
-      try {
-        // Use sample text instead of backend call
-        const aiSpeech =
-          participant.name === "Bob Smith"
-            ? "I support AI regulation to ensure ethical development."
-            : participant.name === "Carol Davis"
-            ? "Regulation could hinder AI innovation and progress."
-            : participant.name === "David Wilson"
-            ? "A balanced approach to AI regulation is necessary."
-            : participant.name === "Eva Brown"
-            ? "AI safety must be prioritized to protect society."
-            : "We should foster AI growth with minimal restrictions.";
-
-        setAIResponses((prev) => ({ ...prev, [participant.id]: aiSpeech }));
-        console.log(`${participant.name} (AI) spoke:`, aiSpeech);
-
-        const voiceName = voiceMap[participant.name];
-        console.log(`Speaking with voice: ${voiceName}`);
-        const estimatedDuration = (aiSpeech.length / 5 / 150) * 60 * 1000; // chars to words to ms
-        const minDuration = 5000;
-        const speechDuration = Math.max(estimatedDuration, minDuration);
-
-        setCurrentSpeaker(participant.id);
-        simulateAIMicActivity(participant.id, speechDuration);
-        const utterance = await speakText(aiSpeech, voiceName);
-        if (utterance) {
-          utterance.onend = () => {
-            setCurrentSpeaker(null);
-            setMicStatus((prev) => ({ ...prev, [participant.id]: false }));
-            setFrequencyData((prev) => {
-              const newData = { ...prev };
-              delete newData[participant.id];
-              return newData;
-            });
-            setSpeechIndex((prev) => prev + 1);
-          };
-        } else {
-          // Fallback if speech fails
-          setTimeout(() => {
-            setCurrentSpeaker(null);
-            setSpeechIndex((prev) => prev + 1);
-          }, speechDuration);
-        }
-      } catch (err) {
-        console.error("Error in AI speech:", err);
-        alert("Failed to process AI speech.");
-        setSpeechIndex((prev) => prev + 1); // Move to next participant
-      }
+      await handleSpecificAISpeaking(participant);
     }
   };
 
-  // Trigger AI speaking when active
+  // Trigger AI speaking when active (modified to work with new logic)
   useEffect(() => {
     if (isActive && speechIndex > 0) handleAISpeaking();
   }, [speechIndex, isActive]);
@@ -241,6 +305,9 @@ const DebateRoom = () => {
   useEffect(() => {
     if (isActive && speechIndex === 0) {
       setCurrentSpeaker(1);
+      const humanParticipant = participants.find(p => p.id === 1);
+      setLastSpeakerTeam(null); // No previous speaker
+      setNextSpeakerTeam(humanParticipant.team === "Government" ? "Opposition" : "Government");
       alert("Debate started! Prime Minister, please toggle your mic to speak.");
     }
   }, [isActive]);
@@ -361,6 +428,12 @@ const DebateRoom = () => {
           <div>
             <h1 className="text-2xl font-bold">Parliamentary Debate</h1>
             <p className="text-gray-400">Motion: {topic}</p>
+            {/* New indicator for next speaker team */}
+            {nextSpeakerTeam && (
+              <p className="text-yellow-400 text-sm mt-1">
+                Next speaker should be from: {nextSpeakerTeam} team
+              </p>
+            )}
           </div>
           <div className="flex items-center space-x-4">
             <div className="flex items-center space-x-2 bg-gray-700 px-4 py-2 rounded">

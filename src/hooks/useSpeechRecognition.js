@@ -3,7 +3,9 @@ import { useState, useEffect, useRef } from "react";
 const useSpeechRecognition = () => {
   const [transcript, setTranscript] = useState("");
   const [listening, setListening] = useState(false);
+
   const recognitionRef = useRef(null);
+  const isListeningRef = useRef(false); // ✅ sync flag to prevent double start
 
   useEffect(() => {
     const SpeechRecognition =
@@ -38,40 +40,50 @@ const useSpeechRecognition = () => {
 
     recognition.onerror = (event) => {
       console.error("Speech recognition error:", event.error);
-      if (event.error === "not-allowed" || event.error === "network") {
-        setListening(false);
-      }
+      setListening(false);
+      isListeningRef.current = false;
     };
 
     recognition.onend = () => {
       console.log("🎤 Recognition ended.");
       setListening(false);
+      recognition._isStarted=false;
+      isListeningRef.current = false;
     };
 
     recognitionRef.current = recognition;
   }, []);
 
   const startListening = () => {
-    if (!recognitionRef.current) return;
-    if (listening) return;
+    const recognition = recognitionRef.current;
+    if (!recognition) return;
+
+    if (isListeningRef.current) {
+      console.log("⚠️ Already listening. Skipping start.");
+      return;
+    }
 
     try {
-      recognitionRef.current.start();
+      recognition.start();
+      isListeningRef.current = true;
       setListening(true);
       console.log("✅ Started listening");
     } catch (error) {
-      console.warn("Already listening or start failed", error.message);
+      console.warn("❌ Could not start listening:", error.message);
     }
   };
 
   const stopListening = () => {
-    if (!recognitionRef.current) return;
+    const recognition = recognitionRef.current;
+    if (!recognition) return;
+
     try {
-      recognitionRef.current.stop();
+      recognition.stop();
+      isListeningRef.current = false;
       setListening(false);
       console.log("🛑 Stopped listening");
     } catch (e) {
-      console.error("Failed to stop", e);
+      console.error("❌ Failed to stop recognition:", e);
     }
   };
 
@@ -79,7 +91,13 @@ const useSpeechRecognition = () => {
     setTranscript("");
   };
 
-  return { transcript, listening, startListening, stopListening, resetTranscript };
+  return {
+    transcript,
+    listening,
+    startListening,
+    stopListening,
+    resetTranscript,
+  };
 };
 
 export default useSpeechRecognition;
