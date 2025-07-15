@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
-import { Mic, MicOff, Video, VideoOff, Settings, Users, Timer } from "lucide-react";
+import { Mic, MicOff, Video, VideoOff, Settings, Users, Timer, WindIcon, CodeSquare } from "lucide-react";
 import { useAuth } from "../contexts/AuthContext";
 import useSpeechRecognition from "../hooks/useSpeechRecognition";
 import { submitSpeech, evaluateDebate } from "../services/debateservice";
@@ -14,7 +14,7 @@ const DebateRoom = () => {
   const isHumanMode = mode === "Human vs AI";
 
   const { transcript, listening, startListening, stopListening } = useSpeechRecognition();
-
+  const [hasStarted,setHasStarted]=useState(false);
   const [currentSpeaker, setCurrentSpeaker] = useState(null);
   const [timeRemaining, setTimeRemaining] = useState(300);
   const [isActive, setIsActive] = useState(false);
@@ -33,6 +33,7 @@ const DebateRoom = () => {
   // New state for alternating team logic
   const [lastSpeakerTeam, setLastSpeakerTeam] = useState(null);
   const [nextSpeakerTeam, setNextSpeakerTeam] = useState(null);
+
 
   let remainingGov = 3 - (team === "Government" ? 1 : 0);
   const teamSel = () => (remainingGov-- > 0 ? "Government" : "Opposition");
@@ -60,14 +61,9 @@ const DebateRoom = () => {
     if (availableAI.length > 0) {
       return availableAI[0]; // Return first available AI from opposite team
     }
-    
     // If no AI available from opposite team, return null
     return null;
   };
-  useEffect(()=>{
-      aiResponsesRef.current=aiResponses;
-    },[aiResponses]);
-
   // Initialize micStatus after participants is defined
   useEffect(() => {
     setMicStatus(Object.fromEntries(participants.map((p) => [p.id, false])));
@@ -92,6 +88,10 @@ const DebateRoom = () => {
         alert("Speech synthesis voices failed to load. AI voices may not work.");
       });
   }, []);
+
+  useEffect(()=>{
+      aiResponsesRef.current=aiResponses;
+    },[aiResponses]);
 
   // Handle human speech recognition
   useEffect(() => {
@@ -249,7 +249,11 @@ const DebateRoom = () => {
             return newData;
           });
           
-          setAIResponses((prev)=>({...prev,[participant.id]:aiSpeech}));
+          setAIResponses((prev) => {
+              const updated = { ...prev, [participant.id]: aiSpeech };
+              aiResponsesRef.current = updated; 
+              return updated;
+          });
           console.log(aiResponses);
           // Update last speaker team and find next speaker from opposite team
           setLastSpeakerTeam(participant.team);
@@ -296,6 +300,48 @@ const DebateRoom = () => {
     }
   };
 
+  const handleLeaveDebate=()=>{
+    stopListening();
+    window.speechSynthesis.cancel();
+    setIsActive(false);
+    setCurrentSpeaker(null);
+    setMicStatus((prev)=>({...prev,1:false}));
+    setFrequencyData({});
+    navigate("/home");
+  }
+  const handleControlToggle=()=>{
+    if(!hasStarted)
+    {
+      setMicStatus((prev)=>({...prev,1:false}));
+      setFrequencyData({});
+      setIsActive(true);
+      setHasStarted(true);
+    }
+    else if(isActive)
+    {
+      stopListening();
+      window.speechSynthesis.cancel();
+      setIsActive(false);
+      console.log("Debate paused");
+    }
+    else
+    {
+      setIsActive(true);
+      console.log("Debate resumed");
+      if (currentSpeaker==1 && micStatus[1])
+      {
+        startListening();
+      }
+
+      const nextSpeaker=getNextSpeakerFromOppositeTeam(lastSpeakerTeam);
+      if (nextSpeaker)
+      {
+        setTimeout(() => {
+          handleSpecificAISpeaking(nextSpeaker);
+        }, 1000);
+      }
+    }
+  }
   // Trigger AI speaking when active (modified to work with new logic)
   useEffect(() => {
     if (isActive && speechIndex > 0) handleAISpeaking();
@@ -440,10 +486,10 @@ const DebateRoom = () => {
               <Timer size={20} />
               <span className="font-mono text-lg">{formatTime(timeRemaining)}</span>
               <button
-                onClick={() => setIsActive(!isActive)}
+                onClick={handleControlToggle}
                 className={`px-3 py-1 rounded text-sm ${isActive ? "bg-red-500" : "bg-green-500"} text-white`}
               >
-                {isActive ? "Pause" : "Start"}
+                {!hasStarted ? "Start" : isActive ? "Pause":"Resume"}
               </button>
             </div>
             <button onClick={handleEvaluate} className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700">
@@ -456,7 +502,7 @@ const DebateRoom = () => {
               <Settings size={20} />
             </button>
             <button
-              onClick={() => navigate("/home")}
+              onClick={handleLeaveDebate}
               className="bg-red-600 text-white px-4 py-2 rounded hover:bg-red-700"
             >
               Leave Debate
