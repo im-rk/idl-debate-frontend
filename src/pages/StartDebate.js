@@ -1,11 +1,12 @@
 import React, { useState } from 'react'
-import { useNavigate } from 'react-router-dom';
+import { useAsyncError, useNavigate } from 'react-router-dom';
 
 const StartDebate = () => {
   const [topic,setTopic]=useState("");
   const [format,setFormat]=useState("Asian Parliamentary");
   const [mode, setMode]=useState("AI vs AI");
   const [team,setTeam]=useState("Government");
+  const [skill,setSkill]=useState("Beginner");
   const navigate=useNavigate();
   const handlemodechange=(e)=>{
     const selectmode=e.target.value;
@@ -65,6 +66,16 @@ const StartDebate = () => {
           <option value="Opposition">Join Opposition</option>
         </select>
       )}
+      <select
+        className="w-full p-2 border rounded mb-4"
+        value={skill}
+        onChange={(e)=>setSkill(e.target.value)}
+      >
+        <option>Beginner</option>
+        <option>Intermediate</option>
+        <option>Advanced</option>
+      </select>
+
       <button
         onClick={handleStart}
         className="w-full bg-blue-600 text-white p-2 rounded"
