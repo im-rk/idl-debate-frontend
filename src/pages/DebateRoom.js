@@ -10,7 +10,7 @@ const DebateRoom = () => {
   const navigate = useNavigate();
   const { user } = useAuth();
   const location = useLocation();
-  const { team, topic, mode } = location.state || {};
+  const { team, topic, mode,skill } = location.state || {};
   const isHumanMode = mode === "Human vs AI";
 
   const { transcript, listening, startListening, stopListening } = useSpeechRecognition();

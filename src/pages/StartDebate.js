@@ -27,7 +27,7 @@ const StartDebate = () => {
       return ;
     }
     console.log({topic,format,mode,team});
-    navigate("/debate-room",{state:{topic,format,mode,team}})
+    navigate("/debate-room",{state:{topic,format,mode,team,skill}})
   }
   return (
     <div className="max-w-md mx-auto p-4 mt-10 shadow-lg border rounded-lg">
