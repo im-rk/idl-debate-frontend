@@ -3,7 +3,7 @@ import { useNavigate, useLocation } from "react-router-dom";
 import { Mic, MicOff, Video, VideoOff, Settings, Users, Timer, WindIcon, CodeSquare } from "lucide-react";
 import { useAuth } from "../contexts/AuthContext";
 import useSpeechRecognition from "../hooks/useSpeechRecognition";
-import { submitSpeech, evaluateDebate } from "../services/debateservice";
+import { submitSpeech, evaluateDebate, generateAIResponse } from "../services/debateservice";
 import { speakText, loadVoices } from "../utils/speech";
 
 const DebateRoom = () => {
@@ -139,7 +139,7 @@ const DebateRoom = () => {
 
         if (transcript.trim()) {
           try {
-            //await submitSpeech(user?.username || "Human", transcript, topic);
+            await submitSpeech(user?.username || "Human", transcript, topic);
             console.log("Speech submitted");
             alert("Human speech submitted successfully!");
             if (isActive) {
@@ -216,16 +216,7 @@ const DebateRoom = () => {
 
     try {
       // Use sample text instead of backend call
-      const aiSpeech =
-        participant.name === "Bob Smith"
-          ? "I support AI regulation to ensure ethical development."
-          : participant.name === "Carol Davis"
-          ? "Regulation could hinder AI innovation and progress."
-          : participant.name === "David Wilson"
-          ? "A balanced approach to AI regulation is necessary."
-          : participant.name === "Eva Brown"
-          ? "AI safety must be prioritized to protect society."
-          : "We should foster AI growth with minimal restrictions.";
+      const aiSpeech=await generateAIResponse(topic,participant.role,transcript);
 
       console.log(`${participant.name} (AI) spoke:`, aiSpeech);
 
